@@ -27,8 +27,13 @@ async function main() {
     },
   });
 
-  // --- Barangays (San Luis, Aurora sample barangays) ---
-  const barangayNames = ["Poblacion", "Dibalo", "Dibut", "Dikapinisan", "Dimanayat", "Nonong Senior", "Real", "San Isidro", "Bacong"];
+  // --- Barangays (the cooperative's list, SANLUIS_BRGYLIST.xlsx; "Outside SL" covers members living outside San Luis) ---
+  const barangayNames = [
+    "Anislagan", "Balit", "Baylo", "Binicalan", "Cecilia", "Coalicion", "Culi", "Dimasalang",
+    "Don Alejandro", "Don Pedro", "Doña Flavia", "Duangan", "KM7", "Doña Maxima", "Mahagsay",
+    "Mahapag", "Mahayahay", "Muritula", "Nuevo Trabajo", "Poblacion", "Policarpo", "San Isidro",
+    "San Pedro", "Santa Ines", "Santa Rita", "Santiago", "Tuburan", "Wegguam", "Outside SL",
+  ];
   const barangays = {};
   for (const name of barangayNames) {
     const b = await prisma.barangay.upsert({
@@ -56,13 +61,46 @@ async function main() {
     create: { username: "mao", passwordHash: await hash("mao123"), role: "MAO" },
   });
 
+  // --- Cooperative office accounts ---
+  // Username = first + last name, lowercase, no spaces or accents; password = last name + "@2026pass".
+  // shortcut: guessable name-based passwords, have the admin reset them before real use.
+  const plain = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const officeUsers = [
+    ["ADMIN", "Grace", "S.", "Cubello"],
+    ["STAFF", "Nicolas", "O.", "Madula"],
+    ["STAFF", "Anabella", "D.", "Yecyec"],
+    ["STAFF", "Revilito", null, "Raman"],
+    ["STAFF", "Anna Carmela", "Y.", "Calderon"],
+    ["STAFF", "Anastasio", null, "Hagunos"],
+    ["STAFF", "Ferdinand", null, "Guzman"],
+    ["STAFF", "Emelyn", "G.", "Ormega"],
+    ["MAO", "Franklin", null, "Mañoza"],
+    ["MAO", "Arlene", "J.", "Idul"],
+    ["MAO", "Judith", null, "Leren"],
+  ];
+  for (const [role, firstName, middleName, lastName] of officeUsers) {
+    const username = plain(firstName + lastName).replace(/\s+/g, "").toLowerCase();
+    await prisma.user.upsert({
+      where: { username },
+      update: { firstName, middleName, lastName }, // never reset a password on re-seed
+      create: {
+        username,
+        firstName,
+        middleName,
+        lastName,
+        role,
+        passwordHash: await hash(`${plain(lastName)}@2026pass`),
+      },
+    });
+  }
+
   // --- Sample members ---
   const sampleMembers = [
     { memberNo: "M-0001", firstName: "Juan", lastName: "Dela Cruz", sex: "Male", barangay: "Poblacion", membershipType: "REGULAR", shareCapital: 15000, dateJoined: "2019-03-01" },
-    { memberNo: "M-0002", firstName: "Maria", lastName: "Santos", sex: "Female", barangay: "Dibut", membershipType: "ASSOCIATE", shareCapital: 6000, dateJoined: "2022-07-15" },
-    { memberNo: "M-0003", firstName: "Pedro", lastName: "Reyes", sex: "Male", barangay: "Real", membershipType: "ASSOCIATE", shareCapital: 2500, dateJoined: "2023-11-20" },
+    { memberNo: "M-0002", firstName: "Maria", lastName: "Santos", sex: "Female", barangay: "Santa Rita",membershipType: "ASSOCIATE", shareCapital: 6000, dateJoined: "2022-07-15" },
+    { memberNo: "M-0003", firstName: "Pedro", lastName: "Reyes", sex: "Male", barangay: "Mahayahay",membershipType: "ASSOCIATE", shareCapital: 2500, dateJoined: "2023-11-20" },
     { memberNo: "M-0004", firstName: "Ana", lastName: "Lim", sex: "Female", barangay: "San Isidro", membershipType: "ASSOCIATE", shareCapital: 8000, dateJoined: "2021-01-10" },
-    { memberNo: "M-0005", firstName: "Jose", lastName: "Garcia", sex: "Male", barangay: "Bacong", membershipType: "REGULAR", shareCapital: 18500, dateJoined: "2018-06-05" },
+    { memberNo: "M-0005", firstName: "Jose", lastName: "Garcia", sex: "Male", barangay: "Coalicion",membershipType: "REGULAR", shareCapital: 18500, dateJoined: "2018-06-05" },
   ];
 
   for (const m of sampleMembers) {
@@ -84,8 +122,35 @@ async function main() {
   // Importing them as members here created a duplicate on approval.
   const existingApplicationCount = await prisma.membershipApplication.count();
   if (existingApplicationCount === 0) {
+    // Made-up contact details, from a fixed random seed so every reset gives the same values.
+    const rng = (seed) => () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const rand = rng(20260);
+    const pick = (n) => Math.floor(rand() * n);
+    // Submitted: random moments from Aug 27 to Oct 17, 2026 (Philippine time), sorted so
+    // APP numbers follow submission order. Own stream, so the other values don't shift.
+    const randSubmitted = rng(827);
+    const from = Date.parse("2026-08-27T00:00:00+08:00");
+    const to = Date.parse("2026-10-18T00:00:00+08:00");
+    const submitted = farmers.map(() => from + Math.floor(randSubmitted() * (to - from))).sort((a, b) => a - b);
+    // Ages 26–49 today: born after (today − 50 years) and on or before (today − 26 years).
+    const today = new Date();
+    const utc = (yearsBack, dayShift = 0) =>
+      Date.UTC(today.getFullYear() - yearsBack, today.getMonth(), today.getDate() + dayShift);
+    const oldest = utc(50, 1);
+    const youngest = utc(26);
+    const DAY = 86400000;
+    const emailCount = {};
+
     let nextNo = 1;
     for (const [firstName, lastName, middleName] of farmers) {
+      // "Dela Cruz" → delacruz, "Ruth-Personal" → ruthpersonal; a repeated name gets 2, 3, …
+      const base = `${firstName}${lastName}`.normalize("NFD").toLowerCase().replace(/[^a-z]/g, "");
+      emailCount[base] = (emailCount[base] ?? 0) + 1;
       await prisma.membershipApplication.create({
         data: {
           applicationNo: `APP-${String(nextNo).padStart(4, "0")}`,
@@ -94,6 +159,11 @@ async function main() {
           middleName: middleName || null,
           membershipType: "ASSOCIATE",
           status: "PENDING",
+          barangayId: barangays[barangayNames[pick(barangayNames.length)]],
+          contactNo: "09" + String(pick(1e9)).padStart(9, "0"),
+          email: `${base}${emailCount[base] > 1 ? emailCount[base] : ""}@gmail.com`,
+          birthdate: new Date(oldest + pick((youngest - oldest) / DAY + 1) * DAY),
+          createdAt: new Date(submitted[nextNo - 1]),
         },
       });
       nextNo += 1;
@@ -136,6 +206,7 @@ async function main() {
   console.log("  staff / staff123   (STAFF)");
   console.log("  mao   / mao123     (MAO)");
   console.log("  juan  / member123  (MEMBER → M-0001)");
+  console.log("  + 11 office accounts: <first><last> / <Last>@2026pass (e.g. gracecubello / Cubello@2026pass)");
 }
 
 main()

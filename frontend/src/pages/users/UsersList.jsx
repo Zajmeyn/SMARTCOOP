@@ -6,18 +6,21 @@ import {
   Button,
   Card,
   Input,
+  SearchInput,
   Select,
   TableSkeleton,
   PageHeader,
   Badge,
-  Modal, DataTable
+  Modal, DataTable, Pagination
 } from "../../components/ui";
+import { usePagination } from "../../lib/usePagination";
 import { useConfirm } from "../../components/ConfirmDialog";
 import { formatDate } from "../../lib/format";
 import { Plus, KeyRound, Pencil, Trash2, ShieldCheck } from "lucide-react";
 
 const ROLE_COLOR = { ADMIN: "red", STAFF: "blue", MAO: "amber", MEMBER: "green" };
 const ROLES = ["ADMIN", "STAFF", "MAO", "MEMBER"];
+const PAGE_SIZES = [10, 20, 50, 100];
 
 export default function UsersList() {
   const { user: me } = useAuth();
@@ -26,6 +29,8 @@ export default function UsersList() {
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  const [pageSize, setPageSize] = useState(10);
+  const { page, setPage, pageCount, pageItems } = usePagination(users, pageSize);
   const [error, setError] = useState("");
 
   // Modal state: { mode: "create" | "edit" | "password", user? }
@@ -124,8 +129,8 @@ export default function UsersList() {
           className="flex items-end gap-3"
         >
           <div className="flex-1">
-            <Input
-              label="Search username"
+            <SearchInput
+              label="Search name or username"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search…"
@@ -139,7 +144,20 @@ export default function UsersList() {
               ))}
             </Select>
           </div>
-          <Button type="submit" variant="secondary">Search</Button>
+          <div className="w-32">
+            <Select
+              label="Rows per page"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </Select>
+          </div>
         </form>
         {error && <p className="mt-2 text-sm text-[#9F2F2D]">{error}</p>}
       </Card>
@@ -152,6 +170,7 @@ export default function UsersList() {
             <thead>
               <tr>
                 <th className="px-4 py-3 font-medium">Username</th>
+                <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Role</th>
                 <th className="px-4 py-3 font-medium">Linked member</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -160,7 +179,7 @@ export default function UsersList() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => {
+              {pageItems.map((u) => {
                 const isMe = u.id === me?.id;
                 return (
                   <tr key={u.id} className="hover:bg-[#F7F6F3]">
@@ -168,6 +187,7 @@ export default function UsersList() {
                       {u.username}
                       {isMe && <span className="ml-2 text-xs text-[#5F5E5A]">(you)</span>}
                     </td>
+                    <td className="px-4 py-3 text-[#2F3437]">{fullName(u) || "—"}</td>
                     <td className="px-4 py-3">
                       <Badge color={ROLE_COLOR[u.role]}>{u.role}</Badge>
                     </td>
@@ -199,7 +219,7 @@ export default function UsersList() {
                           disabled={isMe}
                           title={u.status === "ACTIVE" ? "Deactivate" : "Activate"}
                         >
-                          <ShieldCheck size={15} className={u.status === "ACTIVE" ? "text-[#346538]" : "text-[#5F5E5A]"} />
+                          <ShieldCheck size={15} className={u.status === "ACTIVE" ? "text-[var(--danger)]" : "text-[#5F5E5A]"} />
                         </Button>
                         <Button variant="ghost" onClick={() => remove(u)} disabled={isMe} title="Delete">
                           <Trash2 size={15} className="text-[#9F2F2D]" />
@@ -211,7 +231,7 @@ export default function UsersList() {
               })}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-[#5F5E5A]">
+                  <td colSpan={7} className="px-4 py-10 text-center text-[#5F5E5A]">
                     No accounts found.
                   </td>
                 </tr>
@@ -220,6 +240,7 @@ export default function UsersList() {
           </DataTable>
         </Card>
       )}
+      {users && <Pagination page={page} pageCount={pageCount} onPage={setPage} />}
 
       <UserModal
         modal={modal}
@@ -230,6 +251,31 @@ export default function UsersList() {
         }}
         membersWithoutAccount={membersWithoutAccount}
       />
+    </div>
+  );
+}
+
+const nameOf = ({ firstName, middleName, lastName }) => ({ firstName, middleName, lastName });
+
+function fullName(u) {
+  return [u.firstName, u.middleName, u.lastName].filter(Boolean).join(" ");
+}
+
+// Office accounts only: a MEMBER login takes its name from the member record.
+function NameFields({ form, setForm }) {
+  const field = (key, label, required) => (
+    <Input
+      label={label}
+      value={form[key] ?? ""}
+      onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+      required={required}
+    />
+  );
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {field("firstName", "First name", true)}
+      {field("middleName", "Middle name (optional)", false)}
+      {field("lastName", "Last name", true)}
     </div>
   );
 }
@@ -246,7 +292,13 @@ function UserModal({ modal, onClose, onSaved, membersWithoutAccount }) {
     if (mode === "create") {
       setForm({ username: "", password: "", role: "STAFF", memberId: "" });
     } else if (mode === "edit") {
-      setForm({ role: user.role, status: user.status });
+      setForm({
+        role: user.role,
+        status: user.status,
+        firstName: user.firstName ?? "",
+        middleName: user.middleName ?? "",
+        lastName: user.lastName ?? "",
+      });
     } else if (mode === "password") {
       setForm({ password: "" });
     }
@@ -265,9 +317,12 @@ function UserModal({ modal, onClose, onSaved, membersWithoutAccount }) {
           role: form.role,
         };
         if (form.role === "MEMBER") body.memberId = Number(form.memberId);
+        else Object.assign(body, nameOf(form));
         await api.post("/users", body);
       } else if (mode === "edit") {
-        await api.put(`/users/${user.id}`, { role: form.role, status: form.status });
+        const body = { role: form.role, status: form.status };
+        if (!user.memberId) Object.assign(body, nameOf(form));
+        await api.put(`/users/${user.id}`, body);
       } else if (mode === "password") {
         await api.patch(`/users/${user.id}/password`, { password: form.password });
       }
@@ -296,6 +351,7 @@ function UserModal({ modal, onClose, onSaved, membersWithoutAccount }) {
 
         {mode === "create" && (
           <>
+            {form.role !== "MEMBER" && <NameFields form={form} setForm={setForm} />}
             <Input
               label="Username"
               value={form.username ?? ""}
@@ -343,6 +399,7 @@ function UserModal({ modal, onClose, onSaved, membersWithoutAccount }) {
 
         {mode === "edit" && (
           <>
+            {!user?.memberId && <NameFields form={form} setForm={setForm} />}
             <Select
               label="Role"
               value={form.role ?? ""}

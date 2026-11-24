@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Input,
+  SearchInput,
   Select,
   TableSkeleton,
   PageHeader,
@@ -17,7 +18,7 @@ import {
   MemberCombobox,
 } from "../../components/ui";
 import { usePagination } from "../../lib/usePagination";
-import { Plus, AlertTriangle, Search, X } from "lucide-react";
+import { Plus, AlertTriangle, X } from "lucide-react";
 
 const peso = (n) => `₱${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
 
@@ -51,11 +52,13 @@ export default function LoansList() {
     for (const l of loans ?? []) {
       const key = l.member.id;
       if (!map.has(key))
-        map.set(key, { member: l.member, loans: [], principal: 0, balance: 0, active: 0 });
+        map.set(key, { member: l.member, loans: [], principal: 0, owed: 0, principalLeft: 0, active: 0 });
       const g = map.get(key);
       g.loans.push(l);
       g.principal += Number(l.principalAmount);
-      g.balance += Number(l.remainingBalance);
+      // Interest included — the same figure the member sees on their own screen.
+      g.owed += Number(l.totalOutstanding);
+      g.principalLeft += Number(l.remainingBalance);
       if (l.status === "ACTIVE") g.active += 1;
     }
     return [...map.values()];
@@ -256,8 +259,7 @@ export default function LoansList() {
           className="flex flex-wrap items-end gap-3"
         >
           <div className="flex-1 min-w-48">
-            <Input
-              label="Search"
+            <SearchInput
               placeholder="Member No. or name"
               value={search}
               // Emptying the box is a filter change too: without this the list
@@ -280,10 +282,6 @@ export default function LoansList() {
               ))}
             </Select>
           </div>
-          <Button type="submit" variant="secondary">
-            <Search size={16} />
-            Filter
-          </Button>
           {hasFilters && (
             <Button type="button" variant="ghost" onClick={clearFilters}>
               <X size={16} />
@@ -303,7 +301,7 @@ export default function LoansList() {
                 <th>Member</th>
                 <th>Loans</th>
                 <th>Total principal</th>
-                <th>Total balance</th>
+                <th>Total owed</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -325,7 +323,10 @@ export default function LoansList() {
                     )}
                   </td>
                   <td className="text-[#787774]">{peso(g.principal)}</td>
-                  <td className="font-medium text-[#2F3437]">{peso(g.balance)}</td>
+                  <td>
+                    <div className="font-medium text-[#2F3437]">{peso(g.owed)}</div>
+                    <div className="text-xs text-[var(--ink-muted)]">principal {peso(g.principalLeft)}</div>
+                  </td>
                   <td>
                     {/* One badge per member: how many of their loans are still running. */}
                     <Badge color={g.active > 0 ? "green" : "slate"}>

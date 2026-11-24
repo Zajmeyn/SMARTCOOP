@@ -172,6 +172,27 @@ export function Input({ label, error, hint, className = "", ...props }) {
   );
 }
 
+// List-page search box. The search button sits inside the field and submits the
+// surrounding <form>, so Enter and the button do the same thing.
+export function SearchInput({ label = "Search", className = "", ...props }) {
+  return (
+    <FieldShell label={label}>
+      <div className="relative">
+        <input className={`${FIELD} ${fieldBorder()} pr-11 ${className}`} {...props} />
+        {/* Inset 3px so it sits inside the border; radius = field radius (8px) − inset. */}
+        <button
+          type="submit"
+          aria-label="Search"
+          title="Search"
+          className="focus-ring btn-press absolute inset-y-[3px] right-[3px] flex w-8 items-center justify-center rounded-[5px] text-[var(--ink-muted)] hover:bg-[var(--brand-tint)] hover:text-[var(--brand)]"
+        >
+          <Search size={16} />
+        </button>
+      </div>
+    </FieldShell>
+  );
+}
+
 export function Select({ label, error, hint, children, className = "", ...props }) {
   return (
     <FieldShell label={label} error={error} hint={hint} required={props.required}>
